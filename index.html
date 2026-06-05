@@ -243,10 +243,21 @@
         this.respawnAngle = angle; this.trailPositions = [];
         this.rapidFire = false; this.rapidTimer = 0; this.speedBoost = false;
         this.speedTimer = 0;
+        this.respawnTimer = 0;   // 帧计数器，0=存活，>0=等待复活
+        this.deadSince = 0;      // 死亡时的 frameCount，用于显示倒计时
     }
 
     Tank.prototype.update = function() {
-        if (!this.alive) return;
+        // 复活倒计时（帧计数器，代替 setTimeout，更可靠）
+        if (!this.alive) {
+            if (this.respawnTimer > 0) {
+                this.respawnTimer--;
+                if (this.respawnTimer <= 0) {
+                    this.doRespawn();
+                }
+            }
+            return;
+        }
         if (this.shootCooldown > 0) this.shootCooldown--;
         if (this.invincible > 0) this.invincible--;
         if (this.rapidFire) { this.rapidTimer--; if (this.rapidTimer <= 0) this.rapidFire = false; }
@@ -341,6 +352,8 @@
     Tank.prototype.die = function(killerPlayer) {
         this.alive = false;
         this.health = 0;
+        this.respawnTimer = 120;  // 2秒后复活 (60fps * 2)
+        this.deadSince = frameCount;
         for (var i = 0; i < 30; i++) {
             particles.push(new Particle(this.x, this.y, Math.random() * Math.PI * 2, this.color, 2 + Math.random() * 6, 20 + Math.random() * 30));
         }
@@ -350,18 +363,22 @@
             scores[1 - this.playerIndex]++;
         }
         updateScoreUI();
-        var self = this;
-        setTimeout(function() { if (!gameOver) self.respawn(); }, 2000);
         checkWinCondition();
     };
 
-    Tank.prototype.respawn = function() {
+    Tank.prototype.doRespawn = function() {
         this.x = this.respawnX; this.y = this.respawnY;
         this.angle = this.respawnAngle; this.health = MAX_HEALTH;
         this.alive = true; this.invincible = RESPAWN_INVINCIBLE;
         this.shootCooldown = 0; this.trailPositions = [];
         this.rapidFire = false; this.speedBoost = false;
         this.speed = TANK_SPEED;
+        this.respawnTimer = 0;
+    };
+
+    Tank.prototype.respawn = function() {
+        // 向后兼容 - 强制立即复活
+        this.doRespawn();
     };
 
     // ==================== BULLET ====================
@@ -524,7 +541,7 @@
 
     function checkWinCondition() {
         if (scores[0] >= WIN_SCORE || scores[1] >= WIN_SCORE) {
-            gameOver = true; gameOverTimer = 60;
+            gameOver = true; gameOverTimer = 80;
         }
     }
 
@@ -611,7 +628,28 @@
     }
 
     function drawTank(tank) {
-        if (!tank.alive) return;
+        if (!tank.alive) {
+            // 显示复活倒计时
+            if (tank.respawnTimer > 0) {
+                var secLeft = Math.ceil(tank.respawnTimer / 60);
+                ctx.save();
+                ctx.globalAlpha = 0.6;
+                ctx.fillStyle = tank.color;
+                ctx.font = 'bold 16px "Microsoft YaHei", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('复活 ' + secLeft + 's', tank.x, tank.y);
+                // 圆形倒计时环
+                ctx.strokeStyle = tank.color;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                var progress = (120 - tank.respawnTimer) / 120;
+                ctx.arc(tank.x, tank.y, TANK_HALF + 6, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+            return;
+        }
         // Trail
         for (var i = 0; i < tank.trailPositions.length; i++) {
             var t = tank.trailPositions[i];
